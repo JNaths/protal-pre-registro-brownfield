@@ -1,0 +1,112 @@
+// Prisma schema — Phase 1 (01-01) defines ONLY the datasource + generator.
+// Plan 01-02 appends the PreRegistro, Consentimiento, and
+// PersonalDeRecepcion models to this same file.
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Modelos de Fase 1 (Plan 01-02) — pre-registro de pacientes, consentimiento
+// (LFPDPPP: booleano + timestamp inmutable de aceptación) y personal de
+// recepción (sin auth todavía — Fase 4 agrega credenciales/hash).
+model PreRegistro {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  apellidoPaterno String
+  apellidoMaterno String
+  fechaNacimiento DateTime
+  sexo            String // "H" | "M" | "X" — String, no enum nativo (ver 01-RESEARCH.md Pitfall 6)
+  curp            String   @unique
+  rfc             String?  @unique
+  email           String
+  telefono        String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // D-05: normalized (lowercase, accent-stripped) "nombre + apellidoPaterno +
+  // apellidoMaterno" — populated in the write path (packages/api/src/routes/
+  // pre-registros.ts), used by the console's substring name search (D-06).
+  // @default("") mirrors passwordHash's precedent — avoids handling `null` in
+  // the `contains` filter.
+  nombreBusqueda String @default("")
+
+  // D-01: validation audit state for Phase 5's reception console. Adopts the
+  // EXISTING personalId/personal FK below as "who validated" — no new
+  // relation. validadoEn is nullable because there is no value until the
+  // first validation (mirrors Consentimiento's aceptado/fechaAceptacion
+  // bool+timestamp precedent).
+  validado   Boolean   @default(false)
+  validadoEn DateTime?
+
+  consentimiento Consentimiento?
+  domicilio      Domicilio?
+  infoMedica     InfoMedica?
+
+  personalId Int?
+  personal   PersonalDeRecepcion? @relation(fields: [personalId], references: [id])
+
+  @@index([nombreBusqueda])
+  @@map("pre_registro")
+}
+
+model Consentimiento {
+  id                     Int         @id @default(autoincrement())
+  preRegistroId          Int         @unique
+  preRegistro            PreRegistro @relation(fields: [preRegistroId], references: [id], onDelete: Cascade)
+  aceptado               Boolean
+  fechaAceptacion        DateTime    @default(now())
+  versionAvisoPrivacidad String      @default("1.0")
+  createdAt              DateTime    @default(now())
+
+  @@map("consentimiento")
+}
+
+model Domicilio {
+  id            Int         @id @default(autoincrement())
+  preRegistroId Int         @unique
+  preRegistro   PreRegistro @relation(fields: [preRegistroId], references: [id], onDelete: Cascade)
+  calle         String
+  numero        String
+  colonia       String
+  codigoPostal  String
+  estado        String
+  municipio     String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("domicilio")
+}
+
+model InfoMedica {
+  id            Int         @id @default(autoincrement())
+  preRegistroId Int         @unique
+  preRegistro   PreRegistro @relation(fields: [preRegistroId], references: [id], onDelete: Cascade)
+  tipoSangre    String?
+  alergias      String?
+  observaciones String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("info_medica")
+}
+
+model PersonalDeRecepcion {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  apellidoPaterno String
+  apellidoMaterno String
+  email           String   @unique
+  telefono        String?
+  passwordHash    String   @default("")
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  preRegistros PreRegistro[]
+
+  @@map("personal_de_recepcion")
+}
