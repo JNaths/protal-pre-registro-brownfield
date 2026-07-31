@@ -1,0 +1,19 @@
+# Local development database only.
+# Credentials below (portal/portal) are placeholder local-dev values —
+# never reuse them outside .env.local, and never source production
+# DATABASE_URL values from this file (see 01-01 threat model T-01-01).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portal_preregistro
+    ports:
+      - "5432:5432"
+    volumes:
+      - portal_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  portal_postgres_data:
