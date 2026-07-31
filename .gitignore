@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+
+# Prisma migrations and .env.example MUST stay tracked (see 01-RESEARCH.md Pitfall 7)
+!prisma/migrations/
+!.env.example
