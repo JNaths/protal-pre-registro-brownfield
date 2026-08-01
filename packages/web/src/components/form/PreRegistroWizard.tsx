@@ -80,8 +80,8 @@ function WizardBody() {
 
   return (
     <FormProvider {...form}>
-      <div className="mx-auto max-w-md px-4 py-8 sm:py-12">
-        <Card className="p-6 shadow-md sm:p-8">
+      <div className="mx-auto max-w-md px-4 py-6 sm:py-8">
+        <Card className="rounded-2xl border-border/70 p-6 shadow-xl shadow-brand-900/5 ring-1 ring-black/[0.02] sm:p-8">
           <ProgressIndicator />
           <ErrorBanner message={bannerMessage} />
 

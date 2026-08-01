@@ -2,6 +2,7 @@ import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { preRegistroSchema, zodIssuesToErrorEnvelope } from "@app/validation";
 import { sanitizeField } from "../utils/sanitize";
+import { normalize } from "../utils/normalize";
 import { logger } from "../utils/logger";
 import { prisma } from "../db/client";
 import { createRateLimit } from "../middleware/rate-limit";
@@ -42,16 +43,18 @@ type PreRegistroInput = {
   consentimiento: boolean;
 };
 
-// CR-01(b): the public, unauthenticated endpoint CREATES only. A `curp` that
-// already exists is a 409 Conflict — never a silent overwrite. CURP is not a
-// secret (it appears on everyday documents), so allowing an unauthenticated
+// CR-01(b): the public, unauthenticated endpoint CREATES only. A `curp` OR `rfc`
+// that already exists is a 409 Conflict — never a silent overwrite (these are
+// the only two UNIQUE columns on PreRegistro; email is not unique). CURP/RFC are
+// not secrets (they appear on everyday documents), so allowing an unauthenticated
 // update-by-CURP would let anyone tamper with another patient's medical record
 // (broken object-level authorization / IDOR). Corrections to an existing record
 // must be routed through the authenticated reception console (Phase 4/5).
-class DuplicateCurpError extends Error {
-  constructor() {
-    super("DUPLICATE_CURP");
-    this.name = "DuplicateCurpError";
+type DuplicateField = "curp" | "rfc";
+class DuplicateFieldError extends Error {
+  constructor(public readonly field: DuplicateField) {
+    super("DUPLICATE_FIELD");
+    this.name = "DuplicateFieldError";
   }
 }
 
@@ -70,9 +73,19 @@ async function createPreRegistro(data: PreRegistroInput) {
         fechaNacimiento: new Date(data.fechaNacimiento),
         sexo: data.sexo,
         curp: data.curp,
-        rfc: data.rfc ?? null,
+        // 05-UAT: `rfc` is a NULLABLE UNIQUE column. `??` only coalesces
+        // null/undefined, so an omitted RFC that arrives as "" was persisted as
+        // an empty string — and because Postgres treats "" (unlike NULL) as a
+        // real, equal value, the SECOND patient who omitted RFC collided on the
+        // unique index and was wrongly told their CURP already existed. Coerce
+        // blank/whitespace to NULL so distinct patients without an RFC never
+        // conflict (multiple NULLs are permitted under a unique constraint).
+        rfc: data.rfc?.trim() ? data.rfc.trim() : null,
         email: data.email,
         telefono: data.telefono,
+        nombreBusqueda: normalize(
+          `${data.nombre} ${data.apellidoPaterno} ${data.apellidoMaterno}`,
+        ),
         domicilio: {
           create: {
             calle: data.domicilio.calle,
@@ -105,7 +118,38 @@ async function createPreRegistro(data: PreRegistroInput) {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      throw new DuplicateCurpError();
+      // P2002 can fire on EITHER unique column (curp or rfc). Identify which so
+      // the 409 names the RIGHT field instead of always blaming CURP (05-UAT: a
+      // blank-RFC collision was being reported to the patient as a duplicate
+      // CURP). The metadata shape differs by engine: the classic engine exposes
+      // `meta.target`, while driver adapters like @prisma/adapter-pg put the
+      // fields under `meta.driverAdapterError.cause.constraint.fields` and the
+      // constraint name (e.g. "pre_registro_rfc_key") in the message. Gather all
+      // candidates and match on the field name.
+      const meta = error.meta as
+        | {
+            target?: unknown;
+            driverAdapterError?: {
+              cause?: {
+                constraint?: { fields?: unknown };
+                originalMessage?: unknown;
+              };
+            };
+          }
+        | undefined;
+      const cause = meta?.driverAdapterError?.cause;
+      const haystack = [
+        meta?.target,
+        cause?.constraint?.fields,
+        cause?.originalMessage,
+        error.message,
+      ]
+        .flatMap((c) => (Array.isArray(c) ? c : [c]))
+        .filter((c): c is string | number => c != null)
+        .join(",")
+        .toLowerCase();
+      const field: DuplicateField = haystack.includes("rfc") ? "rfc" : "curp";
+      throw new DuplicateFieldError(field);
     }
     throw error;
   }
@@ -167,16 +211,15 @@ preRegistrosRouter.post("/pre-registros", preRegistroRateLimit, async (req, res)
       createdAt: preRegistro.createdAt.toISOString(),
     });
   } catch (error) {
-    if (error instanceof DuplicateCurpError) {
-      // CR-01(b): an existing CURP is a conflict, never a silent overwrite.
+    if (error instanceof DuplicateFieldError) {
+      // CR-01(b): an existing CURP/RFC is a conflict, never a silent overwrite.
       // Distinct from the generic 500 so the client can show a specific,
       // non-alarming message and route the patient to reception.
-      res.status(409).json({
-        error: {
-          message:
-            "Ya existe un pre-registro con este CURP. Acude a recepción para actualizar tus datos.",
-        },
-      });
+      const messages: Record<DuplicateField, string> = {
+        curp: "Ya existe un pre-registro con este CURP. Acude a recepción para actualizar tus datos.",
+        rfc: "Ya existe un pre-registro con este RFC. Acude a recepción para actualizar tus datos.",
+      };
+      res.status(409).json({ error: { message: messages[error.field] } });
       return;
     }
     // Log non-PII diagnostics only: the error message/stack may embed user

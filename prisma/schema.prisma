@@ -27,6 +27,21 @@ model PreRegistro {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // D-05: normalized (lowercase, accent-stripped) "nombre + apellidoPaterno +
+  // apellidoMaterno" — populated in the write path (packages/api/src/routes/
+  // pre-registros.ts), used by the console's substring name search (D-06).
+  // @default("") mirrors passwordHash's precedent — avoids handling `null` in
+  // the `contains` filter.
+  nombreBusqueda String @default("")
+
+  // D-01: validation audit state for Phase 5's reception console. Adopts the
+  // EXISTING personalId/personal FK below as "who validated" — no new
+  // relation. validadoEn is nullable because there is no value until the
+  // first validation (mirrors Consentimiento's aceptado/fechaAceptacion
+  // bool+timestamp precedent).
+  validado   Boolean   @default(false)
+  validadoEn DateTime?
+
   consentimiento Consentimiento?
   domicilio      Domicilio?
   infoMedica     InfoMedica?
@@ -34,6 +49,7 @@ model PreRegistro {
   personalId Int?
   personal   PersonalDeRecepcion? @relation(fields: [personalId], references: [id])
 
+  @@index([nombreBusqueda])
   @@map("pre_registro")
 }
 
@@ -85,6 +101,7 @@ model PersonalDeRecepcion {
   apellidoMaterno String
   email           String   @unique
   telefono        String?
+  passwordHash    String   @default("")
   activo          Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

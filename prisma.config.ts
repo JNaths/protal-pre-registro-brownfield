@@ -22,4 +22,11 @@ export default defineConfig({
     // `directUrl` out of schema.prisma into this config file (see P1012).
     directUrl: process.env.DIRECT_URL,
   },
+  // Phase 4 (D-11): `prisma db seed` reads its command from HERE in Prisma 7,
+  // not from package.json's legacy top-level "prisma.seed" key (that key is
+  // silently ignored by prisma@7 — `prisma db seed` fails with "No seed
+  // command configured" otherwise).
+  migrations: {
+    seed: "tsx prisma/seed.ts",
+  },
 });

@@ -13,3 +13,13 @@ import { dirname, resolve } from "node:path";
 // module-load time.
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 config({ path: resolve(packageRoot, ".env.local") });
+
+// Non-fatal warning for LOCAL DEVELOPMENT only. In production, index.ts fails
+// closed when SESSION_SECRET is missing (WR-03); on localhost it falls back to
+// a documented dev-only secret, so this warning just flags the gap without
+// blocking development.
+if (!process.env.SESSION_SECRET) {
+  console.warn(
+    "SESSION_SECRET no está definido; usando un valor de desarrollo inseguro (no usar en producción).",
+  );
+}

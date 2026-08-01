@@ -7,3 +7,6 @@ dist/
 # Prisma migrations and .env.example MUST stay tracked (see 01-RESEARCH.md Pitfall 7)
 !prisma/migrations/
 !.env.example
+
+# GSD scratch/temporary work output — not tracked
+.planning/tmp/

@@ -41,6 +41,14 @@ const CURP_XSS = "MOTR930411HJCRMN29";
 const CURP_LOG_REDACTION = "MOTR930411HJCRMN37";
 const CURP_DOMICILIO_VALID = "MOTR930411HJCRMN45";
 const CURP_DOMICILIO_CP_INVALID = "MOTR930411HJCRMN53";
+const CURP_NOMBRE_BUSQUEDA = "MOTR930411HJCRMN61";
+// 05-UAT: distinct valid CURPs for the blank-RFC scenarios.
+const CURP_RFC_BLANK_A = "MOTR930411HJCRMN03";
+const CURP_RFC_BLANK_B = "MOTR930411HJCRMN79";
+const CURP_RFC_DUP_A = "MOTR930411HJCRMN87";
+const CURP_RFC_DUP_B = "MOTR930411HJCRMN95";
+// A valid (RENAPO-checksum) RFC fixture for the genuine-duplicate-RFC scenario.
+const RFC_DUP = "MOTR930411008";
 
 const ALL_TEST_CURPS = [
   CURP_UPSERT,
@@ -49,6 +57,11 @@ const ALL_TEST_CURPS = [
   CURP_LOG_REDACTION,
   CURP_DOMICILIO_VALID,
   CURP_DOMICILIO_CP_INVALID,
+  CURP_NOMBRE_BUSQUEDA,
+  CURP_RFC_BLANK_A,
+  CURP_RFC_BLANK_B,
+  CURP_RFC_DUP_A,
+  CURP_RFC_DUP_B,
 ];
 
 describe("POST /api/pre-registros", () => {
@@ -126,6 +139,44 @@ describe("POST /api/pre-registros", () => {
     );
   });
 
+  it("lets two different patients who both leave RFC blank register — a blank RFC is stored as NULL, not '' (05-UAT)", async () => {
+    // The form sends rfc: "" (empty input), NOT an omitted field. Because `rfc`
+    // is a NULLABLE UNIQUE column, persisting "" made the SECOND blank-RFC
+    // patient collide on the unique index — and the collision was mis-reported
+    // as a duplicate CURP. Both blank-RFC creates must now succeed, and both
+    // rows must store NULL (multiple NULLs are allowed; multiple "" are not).
+    const resA = await request(app)
+      .post("/api/pre-registros")
+      .send({ ...basePayload, curp: CURP_RFC_BLANK_A, rfc: "" });
+    expect(resA.status).toBe(200);
+
+    const resB = await request(app)
+      .post("/api/pre-registros")
+      .send({ ...basePayload, curp: CURP_RFC_BLANK_B, rfc: "" });
+    expect(resB.status).toBe(200);
+
+    const rowA = await prisma.preRegistro.findUnique({ where: { curp: CURP_RFC_BLANK_A } });
+    const rowB = await prisma.preRegistro.findUnique({ where: { curp: CURP_RFC_BLANK_B } });
+    expect(rowA?.rfc).toBeNull();
+    expect(rowB?.rfc).toBeNull();
+  });
+
+  it("rejects a genuinely duplicate RFC with 409 and names the RFC (not the CURP) in the message (05-UAT)", async () => {
+    const first = await request(app)
+      .post("/api/pre-registros")
+      .send({ ...basePayload, curp: CURP_RFC_DUP_A, rfc: RFC_DUP });
+    expect(first.status).toBe(200);
+
+    // Same RFC, different CURP → real unique-RFC conflict. The 409 message must
+    // reference the RFC, not misattribute it to the CURP.
+    const second = await request(app)
+      .post("/api/pre-registros")
+      .send({ ...basePayload, curp: CURP_RFC_DUP_B, rfc: RFC_DUP });
+    expect(second.status).toBe(409);
+    expect(second.body.error.message).toContain("RFC");
+    expect(second.body.error.message).not.toContain("CURP");
+  });
+
   it("rejects an invalid CURP with 422 and per-field errors, persisting nothing (API-02)", async () => {
     const res = await request(app)
       .post("/api/pre-registros")
@@ -200,6 +251,26 @@ describe("POST /api/pre-registros", () => {
       where: { curp: CURP_DOMICILIO_CP_INVALID },
     });
     expect(row).toBeNull();
+  });
+
+  it("populates nombreBusqueda with a lowercase, accent-stripped full name on create (D-05, D-06)", async () => {
+    const res = await request(app)
+      .post("/api/pre-registros")
+      .send({
+        ...basePayload,
+        curp: CURP_NOMBRE_BUSQUEDA,
+        nombre: "José",
+        apellidoPaterno: "Peña",
+      });
+
+    expect(res.status).toBe(200);
+
+    const row = await prisma.preRegistro.findUnique({
+      where: { curp: CURP_NOMBRE_BUSQUEDA },
+    });
+
+    expect(row?.nombreBusqueda).toContain("jose");
+    expect(row?.nombreBusqueda).toContain("pena");
   });
 
   it("never emits curp/nombre/email/telefono in plaintext logs during the request (API-06)", async () => {

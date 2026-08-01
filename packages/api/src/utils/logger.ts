@@ -17,6 +17,12 @@ const REDACT_PATHS = [
   "domicilio",
   "alergias",
   "observaciones",
+  // Phase 4 (D-10): auth flow fields — never let plaintext credentials,
+  // hashes, or bearer tokens reach a log line.
+  "password",
+  "passwordHash",
+  "token",
+  "authorization",
 ];
 
 // Factory: accepts an optional pino.DestinationStream so tests can capture

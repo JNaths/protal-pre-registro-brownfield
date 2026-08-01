@@ -19,7 +19,7 @@ export function StepNavigation({
   isSubmitting = false,
 }: StepNavigationProps) {
   return (
-    <div className="sticky bottom-0 flex items-center justify-between gap-4 border-t border-border bg-background py-4 sm:static sm:border-t-0">
+    <div className="sticky bottom-0 mt-6 flex items-center justify-between gap-4 border-t border-border bg-card py-4 sm:static sm:mt-8 sm:border-t-0">
       <Button
         type="button"
         variant="outline"
